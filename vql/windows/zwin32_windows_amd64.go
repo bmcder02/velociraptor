@@ -60,6 +60,8 @@ var (
 	procGetSystemInfo                        = modkernel32.NewProc("GetSystemInfo")
 	procModule32NextW                        = modkernel32.NewProc("Module32NextW")
 	procModule32FirstW                       = modkernel32.NewProc("Module32FirstW")
+	procThread32Next                         = modkernel32.NewProc("Thread32Next")
+	procThread32First                        = modkernel32.NewProc("Thread32First")
 	procCreateToolhelp32Snapshot             = modkernel32.NewProc("CreateToolhelp32Snapshot")
 	procGetMappedFileNameW                   = modpsapi.NewProc("GetMappedFileNameW")
 	procVirtualQueryEx                       = modkernel32.NewProc("VirtualQueryEx")
@@ -262,6 +264,30 @@ func Module32Next(hSnapshot syscall.Handle, me *MODULEENTRY32W) (err error) {
 
 func Module32First(hSnapshot syscall.Handle, me *MODULEENTRY32W) (err error) {
 	r1, _, e1 := syscall.Syscall(procModule32FirstW.Addr(), 2, uintptr(hSnapshot), uintptr(unsafe.Pointer(me)), 0)
+	if r1 == 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+func Thread32Next(hSnapshot syscall.Handle, te *THREADENTRY32) (err error) {
+	r1, _, e1 := syscall.Syscall(procThread32Next.Addr(), 2, uintptr(hSnapshot), uintptr(unsafe.Pointer(te)), 0)
+	if r1 == 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+func Thread32First(hSnapshot syscall.Handle, te *THREADENTRY32) (err error) {
+	r1, _, e1 := syscall.Syscall(procThread32First.Addr(), 2, uintptr(hSnapshot), uintptr(unsafe.Pointer(te)), 0)
 	if r1 == 0 {
 		if e1 != 0 {
 			err = errnoErr(e1)

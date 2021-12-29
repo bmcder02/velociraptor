@@ -1,3 +1,4 @@
+//go:build windows && amd64
 // +build windows,amd64
 
 /*
@@ -324,6 +325,16 @@ type MODULEENTRY32W struct {
 	Module       syscall.Handle
 	ModuleName   [MAX_MODULE_NAME32 + 1]uint16
 	ExePath      [MAX_PATH]uint16
+}
+
+type THREADENTRY32 struct {
+	Size      uint32
+	CntUsage  uint32
+	ThreadID  uint32
+	ProcessID uint32
+	BasePrio  int32
+	DeltaPrio int32
+	Flags     uint32
 }
 
 type OBJECT_ATTRIBUTES struct {
