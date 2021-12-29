@@ -180,6 +180,21 @@ func (self *MasterFrontendManager) processMetrics(ctx context.Context,
 	return nil
 }
 
+func (self *MasterFrontendManager) GetMinionCount() int {
+	res := 0
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	for node_name, metric := range self.stats {
+		if node_name != "master" {
+			if time.Now().Sub(metric.Timestamp) < 60*time.Second {
+				res++
+			}
+		}
+	}
+	return res
+}
+
 // Every 10 seconds read the cummulative stats and update the
 // Server.Monitor.Health artifact.
 func (self *MasterFrontendManager) UpdateStats(ctx context.Context) {
@@ -309,6 +324,10 @@ type MinionFrontendManager struct {
 	name       string
 }
 
+func (self MinionFrontendManager) GetMinionCount() int {
+	return 0
+}
+
 func (self MinionFrontendManager) IsMaster() bool {
 	return false
 }
@@ -367,12 +386,6 @@ func StartFrontendService(ctx context.Context, wg *sync.WaitGroup,
 	config_obj *config_proto.Config) error {
 	if config_obj.Frontend == nil {
 		return errors.New("Frontend not configured")
-	}
-
-	// Start the grpc clients
-	err := grpc_client.Init(ctx, config_obj)
-	if err != nil {
-		return err
 	}
 
 	if services.IsMaster(config_obj) {

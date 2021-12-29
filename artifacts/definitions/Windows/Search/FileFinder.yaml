@@ -50,6 +50,7 @@ parameters:
     description: The accessor to use
 
   - name: YaraRule
+    type: yara
     default:
     description: A yara rule to search for matching files.
 
@@ -86,14 +87,15 @@ sources:
         condition=MoreRecentThan,
         then={
           SELECT * FROM file_search
-          WHERE Modified > parse_float(string=MoreRecentThan)
+          WHERE MTime > MoreRecentThan
         }, else=file_search)
 
       LET modified_before = SELECT * FROM if(
         condition=ModifiedBefore,
         then={
           SELECT * FROM more_recent
-          WHERE Modified < parse_float(string=ModifiedBefore)
+          WHERE MTime < ModifiedBefore
+           AND  MTime > MoreRecentThan
         }, else=more_recent)
 
       LET keyword_search = SELECT * FROM if(

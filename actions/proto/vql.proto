@@ -162,10 +162,15 @@ message ClientInfo {
     string ping_time = 19;
     string client_version = 12;
     string client_name = 13;
+    uint64 first_seen_at = 20;
 
     repeated string labels = 15;
 
     string last_interrogate_flow_id = 16;
+
+    // This can be a customized artifact that is compatible with
+    // Generic.Client.Info
+    string last_interrogate_artifact_name = 21;
 
     uint64 last_hunt_timestamp = 17;
     uint64 last_event_table_version = 18;

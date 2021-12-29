@@ -161,6 +161,7 @@ export default class RegEx extends React.Component {
             maxLines: 5,
             enableLiveAutocompletion: true,
             enableBasicAutocompletion: true,
+            placeholder: "Regular Expression or ? for suggestions",
             showGutter: false,
         });
 

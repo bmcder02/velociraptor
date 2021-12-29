@@ -82,6 +82,7 @@ func (self ParseCSVPlugin) Call(
 
 				csv_reader := csv.NewReader(fd)
 				csv_reader.TrimLeadingSpace = true
+				csv_reader.LazyQuotes = true
 
 				if arg.Separator != "" {
 					if len(arg.Separator) != 1 {
@@ -252,7 +253,8 @@ func (self WriteCSVPlugin) Call(
 				return
 			}
 
-			file, err := os.OpenFile(arg.Filename, os.O_RDWR|os.O_CREATE, 0700)
+			file, err := os.OpenFile(arg.Filename,
+				os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0700)
 			if err != nil {
 				scope.Log("write_csv: Unable to open file %s: %s",
 					arg.Filename, err.Error())

@@ -27,12 +27,14 @@ package interrogation
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/Velocidex/ordereddict"
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 	actions_proto "www.velocidex.com/golang/velociraptor/actions/proto"
 	config_proto "www.velocidex.com/golang/velociraptor/config/proto"
+	crypto_proto "www.velocidex.com/golang/velociraptor/crypto/proto"
 	"www.velocidex.com/golang/velociraptor/datastore"
 	"www.velocidex.com/golang/velociraptor/file_store"
 	flows_proto "www.velocidex.com/golang/velociraptor/flows/proto"
@@ -58,9 +60,30 @@ func (self *EnrollmentService) Start(
 	logger := logging.GetLogger(config_obj, &logging.FrontendComponent)
 	logger.Info("<green>Starting</> Enrollment service.")
 
+	// Also watch for customized interrogation artifacts.
 	err := journal.WatchForCollectionWithCB(ctx, config_obj, wg,
 		"Generic.Client.Info/BasicInformation",
-		self.ProcessInterrogateResults)
+		func(ctx context.Context,
+			config_obj *config_proto.Config,
+			client_id, flow_id string) error {
+			return self.ProcessInterrogateResults(
+				ctx, config_obj, client_id, flow_id,
+				"Generic.Client.Info/BasicInformation")
+		})
+	if err != nil {
+		return err
+	}
+
+	// Also watch for customized interrogation artifacts.
+	err = journal.WatchForCollectionWithCB(ctx, config_obj, wg,
+		"Custom.Generic.Client.Info/BasicInformation",
+		func(ctx context.Context,
+			config_obj *config_proto.Config,
+			client_id, flow_id string) error {
+			return self.ProcessInterrogateResults(
+				ctx, config_obj, client_id, flow_id,
+				"Custom.Generic.Client.Info/BasicInformation")
+		})
 	if err != nil {
 		return err
 	}
@@ -105,6 +128,15 @@ func (self *EnrollmentService) ProcessEnrollment(
 		return err
 	}
 
+	interrogation_artifact := "Generic.Client.Info"
+
+	// Allow the user to override the basic interrogation
+	// functionality.  Check for any customized versions
+	definition, pres := repository.Get(config_obj, "Custom.Generic.Client.Info")
+	if pres {
+		interrogation_artifact = definition.Name
+	}
+
 	// Issue the flow on the client.
 	launcher, err := services.GetLauncher()
 	if err != nil {
@@ -115,8 +147,9 @@ func (self *EnrollmentService) ProcessEnrollment(
 		ctx, config_obj, vql_subsystem.NullACLManager{},
 		repository,
 		&flows_proto.ArtifactCollectorArgs{
+			Creator:   "InterrogationService",
 			ClientId:  client_id,
-			Artifacts: []string{"Generic.Client.Info"},
+			Artifacts: []string{interrogation_artifact},
 		}, func() {
 			// Notify the client
 			notifier := services.GetNotifier()
@@ -130,7 +163,9 @@ func (self *EnrollmentService) ProcessEnrollment(
 	}
 
 	// Write an intermediate record while the interrogation is in
-	// flight.
+	// flight. We are here because the client_info_manager does not
+	// have the record in cache, so next Get() will just read it from
+	// disk on all minions.
 	db, err := datastore.GetDB(config_obj)
 	if err != nil {
 		return err
@@ -138,8 +173,10 @@ func (self *EnrollmentService) ProcessEnrollment(
 
 	client_path_manager := paths.NewClientPathManager(client_id)
 	client_info := &actions_proto.ClientInfo{
-		ClientId:              client_id,
-		LastInterrogateFlowId: flow_id,
+		ClientId:                    client_id,
+		FirstSeenAt:                 uint64(time.Now().Unix()),
+		LastInterrogateFlowId:       flow_id,
+		LastInterrogateArtifactName: interrogation_artifact,
 	}
 
 	err = db.SetSubjectWithCompletion(
@@ -165,11 +202,11 @@ func (self *EnrollmentService) ProcessEnrollment(
 func (self *EnrollmentService) ProcessInterrogateResults(
 	ctx context.Context,
 	config_obj *config_proto.Config,
-	client_id, flow_id string) error {
+	client_id, flow_id, artifact string) error {
 
 	file_store_factory := file_store.GetFileStore(config_obj)
 	path_manager, err := artifacts.NewArtifactPathManager(config_obj,
-		client_id, flow_id, "Generic.Client.Info/BasicInformation")
+		client_id, flow_id, artifact)
 	if err != nil {
 		return err
 	}
@@ -191,15 +228,16 @@ func (self *EnrollmentService) ProcessInterrogateResults(
 		}
 
 		client_info = &actions_proto.ClientInfo{
-			ClientId:              client_id,
-			Hostname:              getter("Hostname"),
-			System:                getter("OS"),
-			Release:               getter("Platform") + getter("PlatformVersion"),
-			Architecture:          getter("Architecture"),
-			Fqdn:                  getter("Fqdn"),
-			ClientName:            getter("Name"),
-			ClientVersion:         getter("BuildTime"),
-			LastInterrogateFlowId: flow_id,
+			ClientId:                    client_id,
+			Hostname:                    getter("Hostname"),
+			System:                      getter("OS"),
+			Release:                     getter("Platform") + getter("PlatformVersion"),
+			Architecture:                getter("Architecture"),
+			Fqdn:                        getter("Fqdn"),
+			ClientName:                  getter("Name"),
+			ClientVersion:               getter("BuildTime"),
+			LastInterrogateFlowId:       flow_id,
+			LastInterrogateArtifactName: artifact,
 		}
 
 		label_array, ok := row.GetStrings("Labels")
@@ -218,6 +256,15 @@ func (self *EnrollmentService) ProcessInterrogateResults(
 	if err != nil {
 		return err
 	}
+
+	public_key_info := &crypto_proto.PublicKey{}
+	err = db.GetSubject(config_obj, client_path_manager.Key(),
+		public_key_info)
+	if err != nil {
+		// Offline clients do not have public key files, so this is
+		// not actually an error. In that case FirstSeenAt becomes 0.
+	}
+	client_info.FirstSeenAt = public_key_info.EnrollTime
 
 	// Expire the client info manager to force it to fetch fresh data.
 	client_info_manager, err := services.GetClientInfoManager()
